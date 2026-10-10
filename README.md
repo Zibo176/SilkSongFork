@@ -1,3 +1,32 @@
+# AnyPS5: Hollow Knight: Silksong (PPSA12544) fork
+
+A fork of [boykopovar/AnyPS5](https://github.com/boykopovar/AnyPS5) for running **Hollow Knight: Silksong** (PPSA12544), a Unity / IL2CPP PS5 title. The `silksong` branch is the integration branch: it tracks upstream `main` and adds the changes below. Fixes are written to be cut from upstream `main` as PRs.
+
+## Silksong status
+
+Tested on an NVIDIA GeForce RTX 4060 Laptop GPU, Windows 11, October 2026.
+
+| Part | State |
+|------|-------|
+| Boot: modules, Vulkan, swapchain | works |
+| Native plugins (PSN, SaveData, Share, CommonDialog, Burst) | initialize with real args |
+| IL2CPP runtime + managed assemblies | load and resolve |
+| Shaders | compile + disk-cache |
+| Intro / menu | renders and runs |
+
+Silksong is the first Unity / IL2CPP title to run on AnyPS5: it boots fully, loads its Addressables bundles, initializes its native plugins, resolves the IL2CPP API, compiles and caches shaders, and renders the game.
+
+Known issues: first-run shader compilation stutters until the on-disk cache warms; frame pacing and long-session stability are not yet measured.
+
+## Changes on this branch
+
+- **Deferred guest-module init (`--defer-sce-module`):** Unity native plugins are force-loaded as `sce_module` dependencies, so the generated Windows startup ran their init with zeroed argument registers and they failed a version handshake and crashed. `--defer-sce-module <file>` skips a module's startup init and the relinker instead emits an exported `__aps5_module_start` stub.
+- **Run deferred init on `sceKernelLoadStartModule`:** when the game loads a deferred plugin, libkernel calls its `__aps5_module_start` with the real `(args, argp)`, so it initializes with correct arguments instead of the zeroed startup path.
+- **Windows guest module/symbol resolution:** `dlopen` falls back to an already-resident guest module by name when a title requests it by its original package path (e.g. `/app0/Media/Modules/Il2CppUserAssemblies.prx`), and `dlsym` gains a Windows default-scope fallback (mirroring the Linux `RTLD_DEFAULT` path) so the title's runtime IL2CPP API lookups resolve.
+- **Depth address reused as colour:** the AGC driver no longer rejects storage access to an address that was once a depth surface but is now reused as a plain colour/storage surface; `DepthPlaneView` checks the access is genuinely a live depth plane before refusing, so reused colour targets render instead of falling back to a stale snapshot.
+
+---
+
 # About
 
 Tool for automatic executables porting to Linux and Windows.
