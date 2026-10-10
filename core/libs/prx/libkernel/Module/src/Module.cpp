@@ -225,6 +225,15 @@ KernelModule APS5_VABI sceKernelLoadStartModule(const char* module_file_name, si
  pendingModuleArgs = {args, argp};
  pendingModuleInitResult = 0;
  void* handle = dlopen_nid_postfix(module_file_name, kRtldNow);
+#ifdef _WIN32
+ // Deferred guest modules (relinker --defer-sce-module) skip their startup init; run it here once
+ // with the caller's args via the module's exported __aps5_module_start stub. No-op if absent.
+ if (handle) {
+     using ModuleStart = int (APS5_VABI *)(std::size_t, const void*);
+     if (auto* start = reinterpret_cast<ModuleStart>(dlsym_nid_postfix(handle, "__aps5_module_start")))
+         pendingModuleInitResult = start(args, argp);
+ }
+#endif
  const int started = pendingModuleInitResult;
  pendingModuleArgs = {};
  pendingModuleInitResult = 0;
