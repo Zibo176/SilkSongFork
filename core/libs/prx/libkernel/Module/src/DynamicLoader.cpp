@@ -14,6 +14,7 @@
 #define NOMINMAX
 #endif
 #include <windows.h>
+#include <psapi.h>
 #else
 #include <dlfcn.h>
 #include <link.h>
@@ -51,6 +52,29 @@ void* Symbol(Module& module, const char* name) {
     return ::dlsym(module.native, name);
 #endif
 }
+#ifdef _WIN32
+// Default-scope resolution for dlsym(RTLD_DEFAULT): search every loaded guest module
+// (and the main program) by plain name then by NID, mirroring the Linux FromGuestModule guard.
+void* DefaultScopeSymbol(const char* name) {
+    HMODULE handles[1024];
+    DWORD needed = 0;
+    if (!EnumProcessModules(GetCurrentProcess(), handles, sizeof(handles), &needed)) return nullptr;
+    const DWORD count = (needed / sizeof(HMODULE) < 1024) ? needed / sizeof(HMODULE) : 1024;
+    const HMODULE self = GetModuleHandleW(nullptr);
+    std::string nid;
+    try { nid = Nid::ComputeNid(name, ""); } catch (...) {}
+    char path[MAX_PATH];
+    for (DWORD index = 0; index < count; ++index) {
+        if (handles[index] != self) {
+            const DWORD length = GetModuleFileNameA(handles[index], path, sizeof(path));
+            if (length == 0 || length >= sizeof(path) || !std::string(path, length).ends_with(".guest.prx")) continue;
+        }
+        if (auto* symbol = reinterpret_cast<void*>(GetProcAddress(handles[index], name))) return symbol;
+        if (!nid.empty()) if (auto* symbol = reinterpret_cast<void*>(GetProcAddress(handles[index], nid.c_str()))) return symbol;
+    }
+    return nullptr;
+}
+#endif
 #ifndef _WIN32
 std::uintptr_t MainProgramBase() {
     static const std::uintptr_t base = [] {
@@ -126,6 +150,14 @@ void* APS5_VABI dlopen_nid_postfix(const char* path, int flags) {
             if (!*path) { Error("dlopen: empty module path"); return nullptr; }
             const auto resolved = RelinkedModulePath(ResolvePath_nid_no_patch(path));
             module->native = LoadLibraryExW(resolved.c_str(), nullptr, LOAD_WITH_ALTERED_SEARCH_PATH);
+            if (!module->native) {
+                // A title may request a guest module by its original package path (e.g.
+                // /app0/Media/Modules/X.prx) while the converted X.prx.guest.prx was staged under a
+                // different directory and is already resident as a load-time dependency. Hand back the
+                // already-loaded instance by name instead of failing, matching PS5 load-once semantics.
+                const auto guestName = std::filesystem::path(path).filename().string() + ".guest.prx";
+                if (HMODULE existing = GetModuleHandleA(guestName.c_str())) { module->native = existing; module->owned = false; }
+            }
         }
         if (!module->native) {
             char message[128];
@@ -160,13 +192,15 @@ void* APS5_VABI dlsym_nid_postfix(void* handle, const char* name) {
             }
         }
         for (const auto& module : search) if (auto* result = FindSymbol(*module, name)) return result;
-#ifndef _WIN32
         if (handle == nullptr || handle == reinterpret_cast<void*>(static_cast<std::intptr_t>(-2))) {
+#ifdef _WIN32
+            if (auto* result = DefaultScopeSymbol(name)) return result;
+#else
             if (auto* result = DefaultScopeSymbol(name)) return result;
             const auto nid = Nid::ComputeNid(name, "");
             if (auto* result = DefaultScopeSymbol(nid.c_str())) return result;
-        }
 #endif
+        }
         Error("dlsym: symbol not found in supported module scope");
         return nullptr;
     } catch (const std::exception& error) { Error(error.what()); return nullptr; }
