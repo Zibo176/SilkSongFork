@@ -5,6 +5,7 @@
 #include <elfpatcher/windows/WindowsPeWriter.hpp>
 #include <elfpatcher/windows/WindowsRelocationBuilder.hpp>
 #include <elfpatcher/windows/WindowsTrampolineBuilder.hpp>
+#include <elfpatcher/windows/WindowsStubEmitter.hpp>
 #include <io/BufferUtils.hpp>
 #include <algorithm>
 #include <map>
@@ -125,6 +126,48 @@ std::vector<std::uint8_t> GuestModuleWriter::WriteWindows(const Relinker::GuestI
     if (!tlsExports.Data.empty()) {
         nextRva = AlignRva(nextRva + tlsExports.Data.size());
         sections.push_back(std::move(tlsExports));
+    }
+    if (runtime.DeferInit) {
+        // Deferred modules are skipped by the main-exe startup init loop; emit an exported stub
+        // (__aps5_module_start) that sceKernelLoadStartModule calls once, running the module's init
+        // with the game-supplied args (rdi/rsi), then its init_array. One-shot guard in .gdata.
+        const std::uint32_t initRva = guest.Init == 0 ? 0 : image.GetRva(guest.Init);
+        std::vector<std::uint32_t> initArrayRvas;
+        for (const auto slot : guest.InitArray) initArrayRvas.push_back(image.GetRva(slot, 8));
+        const std::uint32_t gdataRva = nextRva;
+        const std::uint32_t guardRva = gdataRva;
+        const std::uint32_t resultRva = gdataRva + 4;
+        nextRva = AlignRva(nextRva + 8);
+        const std::uint32_t stubRva = nextRva;
+        WindowsStubEmitter code(stubRva);
+        code.Rip({0x0f, 0xb6, 0x05}, guardRva);          // movzx eax, byte [rip+guard]
+        code.Emit({0x84, 0xc0});                         // test al, al
+        const auto toRun = code.Branch({0x0f, 0x84});    // je run
+        code.Rip({0x8b, 0x05}, resultRva);               // mov eax, [rip+result]
+        code.Emit({0xc3});                               // ret
+        code.PatchBranch(toRun, code.GetRva());
+        code.Emit({0xb0, 0x01});                         // mov al, 1
+        code.Rip({0x88, 0x05}, guardRva);                // mov [rip+guard], al
+        code.Emit({0x53, 0x31, 0xdb});                   // push rbx ; xor ebx, ebx
+        if (initRva != 0) {
+            code.Emit({0x31, 0xd2});                     // xor edx, edx
+            code.Rip({0xe8}, initRva);                   // call init  (rdi=args, rsi=argp)
+            code.Emit({0x89, 0xc3});                     // mov ebx, eax
+        }
+        for (const auto slotRva : initArrayRvas) {
+            code.Rip({0x48, 0x8b, 0x05}, slotRva);       // mov rax, [rip+slot]
+            code.Emit({0x48, 0x85, 0xc0});               // test rax, rax
+            const auto skip = code.Branch({0x0f, 0x84}); // je skip
+            code.Emit({0x31, 0xff, 0x31, 0xf6, 0x31, 0xd2, 0xff, 0xd0}); // xor edi/esi/edx ; call rax
+            code.PatchBranch(skip, code.GetRva());
+        }
+        code.Rip({0x89, 0x1d}, resultRva);               // mov [rip+result], ebx
+        code.Emit({0x89, 0xd8, 0x5b, 0xc3});             // mov eax, ebx ; pop rbx ; ret
+        auto stubBytes = code.TakeBytes();
+        nextRva = AlignRva(nextRva + stubBytes.size());
+        sections.push_back({".gdata", gdataRva, SectionRead | SectionWrite | 0x40u, std::vector<std::uint8_t>(8)});
+        sections.push_back({".ginit", stubRva, SectionRead | SectionExecute | 0x20u, std::move(stubBytes)});
+        exports.emplace("__aps5_module_start", stubRva);
     }
     if (exports.size() > 65535) throw Domain::RelinkerException("Too many guest PE exports");
     PeSection exportSection{".edata", nextRva, SectionRead | 0x40u, std::vector<std::uint8_t>(40)};

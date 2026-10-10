@@ -25,6 +25,7 @@ struct Args {
     std::string sceModulePath;
     std::string runPath = "$ORIGIN/libs";
     std::set<std::string> excludedSceModules;
+    std::set<std::string> deferredSceModules;
 };
 
 Args ParseArgs(int argc, char* argv[]);

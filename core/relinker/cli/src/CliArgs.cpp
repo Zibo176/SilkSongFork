@@ -8,7 +8,7 @@
 namespace Cli {
 
 const char* Usage() {
-    return "Usage: relinker [--help] [--windows | --macos] [--windows-diagnostics] [--windows-gui] [--skip-syscall-check] [--skip-sce-module | --sce-module-path <path>] [--exclude-sce-module <file>]... [--to-intel] [unused-filter=0|1|2] [--registry] [--rpath <path>] [--lazy-binding] [--autorun] <input.elf> <output.elf>\n"
+    return "Usage: relinker [--help] [--windows | --macos] [--windows-diagnostics] [--windows-gui] [--skip-syscall-check] [--skip-sce-module | --sce-module-path <path>] [--exclude-sce-module <file>]... [--defer-sce-module <file>]... [--to-intel] [unused-filter=0|1|2] [--registry] [--rpath <path>] [--lazy-binding] [--autorun] <input.elf> <output.elf>\n"
            "Example: relinker input.elf output.elf";
 }
 
@@ -34,6 +34,10 @@ Args ParseArgs(int argc, char* argv[]) {
             if (i + 1 >= argc)
                 throw std::runtime_error("--exclude-sce-module requires a file name");
             args.excludedSceModules.insert(argv[++i]);
+        } else if (arg == "--defer-sce-module") {
+            if (i + 1 >= argc)
+                throw std::runtime_error("--defer-sce-module requires a file name");
+            args.deferredSceModules.insert(argv[++i]);
         } else if (arg == "--to-intel") {
             args.toIntel = true;
         } else if (arg.rfind("unused-filter=", 0) == 0) {
@@ -75,6 +79,13 @@ Args ParseArgs(int argc, char* argv[]) {
 
     if (args.skipSceModule && !args.excludedSceModules.empty())
         throw std::runtime_error("--exclude-sce-module conflicts with --skip-sce-module");
+
+    if (args.skipSceModule && !args.deferredSceModules.empty())
+        throw std::runtime_error("--defer-sce-module conflicts with --skip-sce-module");
+
+    for (const auto& name : args.deferredSceModules)
+        if (args.excludedSceModules.contains(name))
+            throw std::runtime_error("--defer-sce-module conflicts with --exclude-sce-module: " + name);
 
     if (args.toWindows && args.toMacos)
         throw std::runtime_error("--windows conflicts with --macos");

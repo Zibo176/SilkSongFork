@@ -50,7 +50,7 @@ std::string ModuleStem(std::string name, const bool windows) {
 
 }
 
-std::vector<GuestArtifact> GuestModuleBuilder::Build(const std::filesystem::path& inputPath, const std::filesystem::path& outputPath, Domain::SysVDynamicSection& dynamic, const bool windows, const bool macos, const bool toIntel, ISyscallScanner& syscallScanner, const bool lazyBinding, const std::string& runPath, const std::set<std::string>& excludedModules, const std::filesystem::path& sceModulePath) const {
+std::vector<GuestArtifact> GuestModuleBuilder::Build(const std::filesystem::path& inputPath, const std::filesystem::path& outputPath, Domain::SysVDynamicSection& dynamic, const bool windows, const bool macos, const bool toIntel, ISyscallScanner& syscallScanner, const bool lazyBinding, const std::string& runPath, const std::set<std::string>& excludedModules, const std::set<std::string>& deferredModules, const std::filesystem::path& sceModulePath) const {
     const auto root = std::filesystem::absolute(sceModulePath).lexically_normal();
     if (!std::filesystem::exists(root)) throw Domain::RelinkerException("Guest module parent directory does not exist: " + Io::Utf8Path(root));
     if (!std::filesystem::is_directory(root)) throw Domain::RelinkerException("Guest module parent path is not a directory: " + Io::Utf8Path(root));
@@ -68,6 +68,7 @@ std::vector<GuestArtifact> GuestModuleBuilder::Build(const std::filesystem::path
     if (hasPrx) directories.push_back(prx);
     std::vector<std::filesystem::path> paths;
     std::set<std::string> unmatchedExclusions = excludedModules;
+    std::set<std::string> unmatchedDeferrals = deferredModules;
     const auto isElf = [](const std::filesystem::path& path) {
         std::ifstream stream(path, std::ios::binary);
         if (!stream) throw Domain::RelinkerException("Cannot read guest candidate: " + Io::Utf8Path(path));
@@ -84,6 +85,7 @@ std::vector<GuestArtifact> GuestModuleBuilder::Build(const std::filesystem::path
         if (!std::filesystem::is_directory(directory)) throw Domain::RelinkerException("Guest module path is not a directory: " + Io::Utf8Path(directory));
         for (const auto& entry : std::filesystem::directory_iterator(directory)) {
             if (Io::Utf8Path(entry.path().filename()).ends_with(GuestModuleSuffix)) continue;
+            unmatchedDeferrals.erase(Io::Utf8Path(entry.path().filename()));
             if (excludedModules.contains(Io::Utf8Path(entry.path().filename()))) {
                 unmatchedExclusions.erase(Io::Utf8Path(entry.path().filename()));
                 continue;
@@ -112,6 +114,7 @@ std::vector<GuestArtifact> GuestModuleBuilder::Build(const std::filesystem::path
     };
     for (const auto& path : paths) discovered.emplace(path, GuestImageReader().Read(path, reader.Read(Io::Utf8Path(path))));
     if (!unmatchedExclusions.empty()) throw Domain::RelinkerException("Excluded guest module file not found: " + *unmatchedExclusions.begin());
+    if (!unmatchedDeferrals.empty()) throw Domain::RelinkerException("Deferred guest module file not found: " + *unmatchedDeferrals.begin());
     std::sort(paths.begin(), paths.end());
     paths.erase(std::unique(paths.begin(), paths.end()), paths.end());
     if (paths.empty()) return {};
@@ -304,6 +307,7 @@ std::vector<GuestArtifact> GuestModuleBuilder::Build(const std::filesystem::path
         Domain::GuestRuntime runtime;
         runtime.UsePlatformTlsResolver = image.UsePlatformTlsResolver;
         runtime.Path = relativeDirectory + "/" + image.OutputName;
+        runtime.DeferInit = deferredModules.contains(Io::Utf8Path(image.SourcePath.filename()));
         runtime.Names = {Io::Utf8Path(image.SourcePath.filename()), image.Soname};
         std::vector<std::uint8_t> output;
         if (windows) output = Elfpatcher::GuestModuleWriter().WriteWindows(image, runtime);
