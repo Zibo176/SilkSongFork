@@ -65,11 +65,14 @@ The following stub-backed symbols exist but were **not** triggered in the observ
 - `__tls_get_addr` and related compatibility stubs
 
 ## Visual evidence
-Screenshot provided for this report:
+Screenshots in:
+- `screenshots/harmony-odyssey/runtime-01-workaround.png`
+- `screenshots/harmony-odyssey/runtime-02-workaround.png`
 
-- Screenshot source: modified-tree runtime (`harmony-odyssey-workaround`)
-- Screenshot status: user-supplied screenshot pending addition to this repository
-- Please label it carefully as a **modified-branch screenshot**, not a clean-main screenshot
+Associated branch:
+- `harmony-odyssey-workaround`
+
+Screenshot status: these are **modified-branch screenshots**, not clean unmodified-main screenshots.
 
 ## Suggested roadmap wording
 Practical wording for the issue form:
