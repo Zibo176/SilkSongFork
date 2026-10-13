@@ -9,12 +9,14 @@
 #include "prx/libc/include/General.hpp"
 #include "prx/libc/include/specifics/itanium/UnwindAbi.hpp"
 
+extern "C" const std::uintptr_t* LibcUnwindCursorSlots_nid_no_patch;
+
 namespace LibcUnwind {
 extern const std::uintptr_t CursorSlots[];
 }
 
 struct _Unwind_Context {
-    const std::uintptr_t* cursor = LibcUnwind::CursorSlots;
+    const std::uintptr_t* cursor = LibcUnwindCursorSlots_nid_no_patch;
     std::uintptr_t registers[17] {};
 #ifdef _WIN32
     std::uintptr_t vectorRegisters[16][2] {};

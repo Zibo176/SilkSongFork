@@ -8,6 +8,8 @@
 #include "Personality.cpp"
 
 #include "prx/libc/include/General.hpp"
+
+extern "C" const std::uintptr_t* LibcUnwindCursorSlots_nid_no_patch = LibcUnwind::CursorSlots;
 #include "prx/libc/include/specifics/gcc/SymbolAlias.hpp"
 
 extern "C" [[noreturn]] GCC_HIDDEN_FN void APS5_VABI LibcRuntimeAssertion(const char*, int, const char*, const char*) { std::abort(); }
