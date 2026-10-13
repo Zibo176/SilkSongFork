@@ -501,8 +501,14 @@ extern "C" void KeepStandardHandle_nid_no_patch(int descriptor, void* handle) {
 #endif
 
 #include <cstdio>
+#include <cstdlib>
+#include <string>
 
 extern "C" void NotImplemented_nid_no_patch(const char* funcName) {
-    std::fprintf(stderr, "[stub] %s was reached\n", funcName ? funcName : "<unknown>");
-    throw std::runtime_error(std::string(funcName ? funcName : "<unknown>") + " not implemented");
+    const char* safeMode = std::getenv("APS5_DISABLE_STUB_THROW");
+    bool disableThrow = safeMode && safeMode[0] != '\0' && safeMode[0] != '0';
+    std::fprintf(stderr, "[stub] %s was reached%s\n", funcName ? funcName : "<unknown>", disableThrow ? " (not throwing in test mode)" : "");
+    if (!disableThrow) {
+        throw std::runtime_error(std::string(funcName ? funcName : "<unknown>") + " not implemented");
+    }
 }
