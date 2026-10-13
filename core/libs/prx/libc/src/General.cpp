@@ -500,6 +500,9 @@ extern "C" void KeepStandardHandle_nid_no_patch(int descriptor, void* handle) {
 }
 #endif
 
+#include <cstdio>
+
 extern "C" void NotImplemented_nid_no_patch(const char* funcName) {
-    throw std::runtime_error(std::string(funcName) + " not implemented");
+    std::fprintf(stderr, "[stub] %s was reached\n", funcName ? funcName : "<unknown>");
+    throw std::runtime_error(std::string(funcName ? funcName : "<unknown>") + " not implemented");
 }
